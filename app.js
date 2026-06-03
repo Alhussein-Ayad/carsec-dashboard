@@ -1,22 +1,16 @@
-// =============================================================================
-//  Car Security Dashboard — MQTT over WebSockets (HiveMQ Cloud)
-//
-//  Subscribes:
-//    carsec/<id>/state    JSON state snapshot
-//    carsec/<id>/alarm    "1" on intrusion edge
-//    carsec/<id>/online   "true" | "false"   (LWT)
-//
-//  Publishes:
-//    carsec/<id>/cmd      "ARM" | "DISARM"
-// =============================================================================
+// ---------- HARDCODED BROKER -------------------------------------------------
+const MQTT_HOST   = '06a2ba7fa5274bd89278d9107b2f4f8b.s1.eu.hivemq.cloud';
+const MQTT_PORT   = 8884;
+const DEVICE_ID   = 'car001';
+// -----------------------------------------------------------------------------
 
-const CONFIG_KEY = 'carsec.config.v1';
+const CREDS_KEY = 'carsec.creds.v1';
 
-function loadConfig() {
-  try { return JSON.parse(localStorage.getItem(CONFIG_KEY)) || null; }
+function loadCreds() {
+  try { return JSON.parse(localStorage.getItem(CREDS_KEY)) || null; }
   catch { return null; }
 }
-function saveConfig(cfg) { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); }
+function saveCreds(c) { localStorage.setItem(CREDS_KEY, JSON.stringify(c)); }
 
 // ---------- DOM refs ---------------------------------------------------------
 const $ = (id) => document.getElementById(id);
@@ -27,11 +21,12 @@ const els = {
   connDot: $('connDot'), connText: $('connText'), deviceId: $('deviceId'),
   notification: $('notification'), notifText: $('notifText'),
   armBtn: $('armBtn'), disarmBtn: $('disarmBtn'),
-  settingsBtn: $('settingsBtn'), settingsModal: $('settingsModal'),
-  cfgHost: $('cfgHost'), cfgPort: $('cfgPort'), cfgUser: $('cfgUser'),
-  cfgPass: $('cfgPass'), cfgDevice: $('cfgDevice'),
+  loginBtn: $('settingsBtn'), loginModal: $('settingsModal'),
+  cfgUser: $('cfgUser'), cfgPass: $('cfgPass'),
   cfgSave: $('cfgSave'), cfgCancel: $('cfgCancel'),
 };
+
+els.deviceId.innerText = DEVICE_ID;
 
 // ---------- Map smoothing (same logic that lived in the ESP HTML) -----------
 let lastMapLat = 0, lastMapLon = 0;
@@ -75,30 +70,22 @@ function setConnState(state, text) {
 
 // ---------- MQTT -------------------------------------------------------------
 let client = null;
-let topics = null;
+const TOPICS = {
+  state:  `carsec/${DEVICE_ID}/state`,
+  alarm:  `carsec/${DEVICE_ID}/alarm`,
+  online: `carsec/${DEVICE_ID}/online`,
+  cmd:    `carsec/${DEVICE_ID}/cmd`,
+};
 
-function topicsFor(deviceId) {
-  const base = `carsec/${deviceId}`;
-  return {
-    state:  `${base}/state`,
-    alarm:  `${base}/alarm`,
-    online: `${base}/online`,
-    cmd:    `${base}/cmd`,
-  };
-}
-
-function connect(cfg) {
+function connect(creds) {
   if (client) { try { client.end(true); } catch {} client = null; }
 
-  topics = topicsFor(cfg.device);
-  els.deviceId.innerText = cfg.device;
-
-  const url = `wss://${cfg.host}:${cfg.port}/mqtt`;
-  setConnState('connecting', `Connecting to ${cfg.host}…`);
+  const url = `wss://${MQTT_HOST}:${MQTT_PORT}/mqtt`;
+  setConnState('connecting', 'Connecting…');
 
   client = mqtt.connect(url, {
-    username: cfg.user,
-    password: cfg.pass,
+    username: creds.user,
+    password: creds.pass,
     clientId: 'dash-' + Math.random().toString(16).slice(2, 10),
     clean: true,
     reconnectPeriod: 3000,
@@ -107,7 +94,7 @@ function connect(cfg) {
 
   client.on('connect', () => {
     setConnState('connected', 'Connected');
-    client.subscribe([topics.state, topics.alarm, topics.online], { qos: 1 });
+    client.subscribe([TOPICS.state, TOPICS.alarm, TOPICS.online], { qos: 1 });
   });
 
   client.on('reconnect', () => setConnState('connecting', 'Reconnecting…'));
@@ -120,17 +107,17 @@ function connect(cfg) {
   client.on('message', (topic, payload) => {
     const msg = payload.toString();
 
-    if (topic === topics.state) {
+    if (topic === TOPICS.state) {
       try { applyState(JSON.parse(msg)); }
       catch (e) { console.warn('Bad state payload', msg); }
     }
-    else if (topic === topics.alarm) {
+    else if (topic === TOPICS.alarm) {
       if (msg === '1') {
         els.statusBox.classList.add('alarm-active');
         showNotification('INTRUSION DETECTED!');
       }
     }
-    else if (topic === topics.online) {
+    else if (topic === TOPICS.online) {
       if (msg === 'false') {
         setConnState('error', 'Device offline');
       } else if (msg === 'true' && client.connected) {
@@ -177,46 +164,46 @@ function sendCmd(cmd) {
     showNotification('Not connected to broker.');
     return;
   }
-  client.publish(topics.cmd, cmd, { qos: 1 });
+  client.publish(TOPICS.cmd, cmd, { qos: 1 });
 }
 
-// ---------- Settings modal --------------------------------------------------
-function openSettings(cfg) {
-  els.cfgHost.value   = cfg?.host   || '';
-  els.cfgPort.value   = cfg?.port   || 8884;
-  els.cfgUser.value   = cfg?.user   || '';
-  els.cfgPass.value   = cfg?.pass   || '';
-  els.cfgDevice.value = cfg?.device || 'car001';
-  els.settingsModal.hidden = false;
+// ---------- Login modal -----------------------------------------------------
+function openLogin(creds) {
+  els.cfgUser.value = creds?.user || '';
+  els.cfgPass.value = creds?.pass || '';
+  els.loginModal.hidden = false;
+  setTimeout(() => els.cfgUser.focus(), 50);
 }
-function closeSettings() { els.settingsModal.hidden = true; }
+function closeLogin() { els.loginModal.hidden = true; }
 
-els.settingsBtn.addEventListener('click', () => openSettings(loadConfig()));
-els.cfgCancel.addEventListener('click', closeSettings);
+els.loginBtn.addEventListener('click', () => openLogin(loadCreds()));
+els.cfgCancel.addEventListener('click', closeLogin);
 els.cfgSave.addEventListener('click', () => {
-  const cfg = {
-    host:   els.cfgHost.value.trim(),
-    port:   parseInt(els.cfgPort.value, 10) || 8884,
-    user:   els.cfgUser.value,
-    pass:   els.cfgPass.value,
-    device: els.cfgDevice.value.trim() || 'car001',
+  const creds = {
+    user: els.cfgUser.value.trim(),
+    pass: els.cfgPass.value,
   };
-  if (!cfg.host || !cfg.user) { alert('Host and username are required.'); return; }
-  saveConfig(cfg);
-  closeSettings();
-  connect(cfg);
+  if (!creds.user || !creds.pass) { alert('Username and password are required.'); return; }
+  saveCreds(creds);
+  closeLogin();
+  connect(creds);
 });
+
+// Enter key submits
+[els.cfgUser, els.cfgPass].forEach(el =>
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') els.cfgSave.click(); })
+);
 
 els.armBtn.addEventListener('click',    () => sendCmd('ARM'));
 els.disarmBtn.addEventListener('click', () => sendCmd('DISARM'));
 
 // ---------- Boot ------------------------------------------------------------
 (function init() {
-  const cfg = loadConfig();
-  if (cfg && cfg.host) {
-    connect(cfg);
+  const creds = loadCreds();
+  if (creds && creds.user) {
+    connect(creds);
   } else {
-    setConnState('error', 'Not configured');
-    openSettings(null);
+    setConnState('error', 'Not signed in');
+    openLogin(null);
   }
 })();

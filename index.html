@@ -14,7 +14,7 @@
       <span class="conn-dot" id="connDot"></span>
       <span id="connText">Disconnected</span>
       <span class="device-id">Device: <code id="deviceId">—</code></span>
-      <button id="settingsBtn" class="link-btn">⚙ Settings</button>
+      <button id="settingsBtn" class="link-btn">🔑 Sign in</button>
     </div>
 
     <div class="grid">
@@ -66,20 +66,17 @@
     <p id="notifText">Intrusion detected!</p>
   </div>
 
-  <!-- SETTINGS MODAL -->
+  <!-- LOGIN MODAL -->
   <div class="modal" id="settingsModal" hidden>
     <div class="modal-inner">
-      <h2>HiveMQ Connection</h2>
-      <label>Host <input id="cfgHost" placeholder="xxxx.s1.eu.hivemq.cloud"></label>
-      <label>WebSocket Port <input id="cfgPort" type="number" value="8884"></label>
-      <label>Username <input id="cfgUser"></label>
-      <label>Password <input id="cfgPass" type="password"></label>
-      <label>Device ID <input id="cfgDevice" placeholder="car001"></label>
+      <h2>Sign in to HiveMQ</h2>
+      <label>Username <input id="cfgUser" autocomplete="username"></label>
+      <label>Password <input id="cfgPass" type="password" autocomplete="current-password"></label>
       <div class="modal-actions">
-        <button id="cfgSave" class="btn-arm">Save &amp; Connect</button>
+        <button id="cfgSave" class="btn-arm">Sign in</button>
         <button id="cfgCancel" class="btn-disarm">Cancel</button>
       </div>
-      <p class="hint">Stored locally in your browser only.</p>
+      <p class="hint">Credentials stored in your browser only.</p>
     </div>
   </div>
 
