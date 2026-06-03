@@ -1,7 +1,20 @@
+// =============================================================================
+//  Car Security Dashboard — MQTT over WebSockets (HiveMQ Cloud)
+//
+//  Subscribes:
+//    carsec/<id>/state    JSON state snapshot
+//    carsec/<id>/alarm    "1" on intrusion edge
+//    carsec/<id>/online   "true" | "false"   (LWT)
+//
+//  Publishes:
+//    carsec/<id>/cmd      "ARM" | "DISARM"
+// =============================================================================
+
 // ---------- HARDCODED BROKER -------------------------------------------------
 const MQTT_HOST   = '06a2ba7fa5274bd89278d9107b2f4f8b.s1.eu.hivemq.cloud';
 const MQTT_PORT   = 8884;
 const DEVICE_ID   = 'car001';
+const STALE_MS    = 10000;   // mark device offline if no state msg in this window
 // -----------------------------------------------------------------------------
 
 const CREDS_KEY = 'carsec.creds.v1';
@@ -27,6 +40,20 @@ const els = {
 };
 
 els.deviceId.innerText = DEVICE_ID;
+
+// ---------- Liveness tracking ------------------------------------------------
+let gotStateRecently = false;
+let staleTimer = null;
+
+function markDeviceAlive() {
+  gotStateRecently = true;
+  setConnState('connected', 'Device online');
+  if (staleTimer) clearTimeout(staleTimer);
+  staleTimer = setTimeout(() => {
+    gotStateRecently = false;
+    setConnState('error', 'Device offline (no data)');
+  }, STALE_MS);
+}
 
 // ---------- Map smoothing (same logic that lived in the ESP HTML) -----------
 let lastMapLat = 0, lastMapLon = 0;
@@ -93,12 +120,12 @@ function connect(creds) {
   });
 
   client.on('connect', () => {
-    setConnState('connected', 'Connected');
+    setConnState('connecting', 'Broker connected, waiting for device…');
     client.subscribe([TOPICS.state, TOPICS.alarm, TOPICS.online], { qos: 1 });
   });
 
   client.on('reconnect', () => setConnState('connecting', 'Reconnecting…'));
-  client.on('close',     () => setConnState('error', 'Disconnected'));
+  client.on('close',     () => setConnState('error', 'Disconnected from broker'));
   client.on('error',     (e) => {
     console.error(e);
     setConnState('error', 'Error: ' + e.message);
@@ -108,8 +135,12 @@ function connect(creds) {
     const msg = payload.toString();
 
     if (topic === TOPICS.state) {
-      try { applyState(JSON.parse(msg)); }
-      catch (e) { console.warn('Bad state payload', msg); }
+      try {
+        applyState(JSON.parse(msg));
+        markDeviceAlive();
+      } catch (e) {
+        console.warn('Bad state payload', msg);
+      }
     }
     else if (topic === TOPICS.alarm) {
       if (msg === '1') {
@@ -118,10 +149,12 @@ function connect(creds) {
       }
     }
     else if (topic === TOPICS.online) {
-      if (msg === 'false') {
+      // Only trust the LWT 'false' if we haven't seen live state recently.
+      // Retained 'false' from a previous session shouldn't override live data.
+      if (msg === 'true' && client.connected) {
+        setConnState('connected', 'Device online');
+      } else if (msg === 'false' && !gotStateRecently) {
         setConnState('error', 'Device offline');
-      } else if (msg === 'true' && client.connected) {
-        setConnState('connected', 'Connected');
       }
     }
   });
