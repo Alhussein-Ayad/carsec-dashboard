@@ -1,14 +1,3 @@
-// =============================================================================
-//  Car Security Dashboard — MQTT over WebSockets (HiveMQ Cloud)
-//
-//  Subscribes:
-//    carsec/<id>/state    JSON state snapshot
-//    carsec/<id>/alarm    "1" on intrusion edge
-//    carsec/<id>/online   "true" | "false"   (LWT)
-//
-//  Publishes:
-//    carsec/<id>/cmd      "ARM" | "DISARM"
-// =============================================================================
 
 // ---------- HARDCODED BROKER -------------------------------------------------
 const MQTT_HOST   = '06a2ba7fa5274bd89278d9107b2f4f8b.s1.eu.hivemq.cloud';
